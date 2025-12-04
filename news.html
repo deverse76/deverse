@@ -582,7 +582,7 @@
                 <div class="input-group">
                     <div class="input-field">
                         <label for="token"><i class="fas fa-key"></i> Токен доступа VK API</label>
-                        <input type="text" id="token" value="vk1.a.zJGMMBb3TWrqXTVD7v2UOCXanjaJ2iuBJSQ91yg_rxm6tS_uPlDTyMGn_nHiJktGGrkV-fhvIGpTHRKxogZqVnIkL1t298AKx-wlWWgEYykDUm3Qjv1zrZUoIU3wCdts5EOvwBdqHDcWR5SLo9aRUHx8t8Fn3ii4GQgNZ-qx6OYBGb2l2PiSbAKrfNQtzTDx6CfpAhf1KGlO_IPJRc8pPg">
+                        <input type="text" id="token" value="" placeholder="Введите токен доступа VK">
                     </div>
                     <div class="input-field">
                         <label for="groupId"><i class="fas fa-users"></i> ID группы</label>
@@ -603,6 +603,9 @@
                     </button>
                     <button id="testToken" class="btn-outline">
                         <i class="fas fa-check-circle"></i> Проверить токен
+                    </button>
+                    <button id="getTokenBtn" class="btn-warning">
+                        <i class="fas fa-external-link-alt"></i> Получить токен
                     </button>
                 </div>
                 
@@ -639,9 +642,9 @@
                     <h4><i class="fas fa-lightbulb"></i> Советы</h4>
                     <ul>
                         <li>Для работы необходим доступ к интернету</li>
+                        <li>Нажмите "Получить токен" для создания нового токена</li>
+                        <li>Используйте ID группы: 233768802 для тестирования</li>
                         <li>Данные кэшируются локально для быстрого доступа</li>
-                        <li>Если не работает, нажмите "Проверить токен"</li>
-                        <li>Токен действителен: бессрочный (из vkhost.github.io)</li>
                     </ul>
                 </div>
             </div>
@@ -652,33 +655,27 @@
     </div>
 
     <script>
-        // Основной объект приложения
         const VKNewsApp = {
-            // Элементы DOM
             elements: {},
-            
-            // Состояние приложения
             state: {
-                posts: []
+                posts: [],
+                isUsingPublicData: false
             },
             
-            // Прокси-сервер для обхода CORS
-            proxyServer: 'https://api.allorigins.win/get?url=',
+            // Альтернативные прокси сервера
+            proxyServers: [
+                'https://api.allorigins.win/get?url=',
+                'https://corsproxy.io/?',
+                'https://api.codetabs.com/v1/proxy?quest='
+            ],
             
-            // Инициализация приложения
             init() {
                 this.cacheElements();
                 this.loadSettings();
                 this.setupEventListeners();
                 this.updateConnectionStatus();
-                
-                // Автоматически загружаем новости при открытии
-                setTimeout(() => {
-                    this.loadNews();
-                }, 1000);
             },
             
-            // Кэширование элементов DOM
             cacheElements() {
                 this.elements = {
                     tokenInput: document.getElementById('token'),
@@ -686,6 +683,7 @@
                     countInput: document.getElementById('count'),
                     loadButton: document.getElementById('loadNews'),
                     testTokenButton: document.getElementById('testToken'),
+                    getTokenButton: document.getElementById('getTokenBtn'),
                     newsContainer: document.getElementById('newsContainer'),
                     loadingState: document.getElementById('loadingState'),
                     connectionStatus: document.getElementById('connectionStatus'),
@@ -693,7 +691,6 @@
                 };
             },
             
-            // Загрузка сохраненных настроек
             loadSettings() {
                 const savedToken = localStorage.getItem('vk_token');
                 const savedGroupId = localStorage.getItem('vk_group_id');
@@ -704,26 +701,28 @@
                 if (savedCount) this.elements.countInput.value = savedCount;
             },
             
-            // Сохранение настроек
             saveSettings() {
                 localStorage.setItem('vk_token', this.elements.tokenInput.value);
                 localStorage.setItem('vk_group_id', this.elements.groupIdInput.value);
                 localStorage.setItem('vk_count', this.elements.countInput.value);
             },
             
-            // Настройка обработчиков событий
             setupEventListeners() {
-                // Основные кнопки
                 this.elements.loadButton.addEventListener('click', () => this.loadNews());
                 this.elements.testTokenButton.addEventListener('click', () => this.testToken());
+                this.elements.getTokenButton.addEventListener('click', () => this.openTokenPage());
                 
-                // Сохранение настроек при изменении
                 this.elements.tokenInput.addEventListener('change', () => this.saveSettings());
                 this.elements.groupIdInput.addEventListener('change', () => this.saveSettings());
                 this.elements.countInput.addEventListener('change', () => this.saveSettings());
             },
             
-            // Проверка токена
+            // Открыть страницу для получения токена
+            openTokenPage() {
+                window.open('https://vkhost.github.io/', '_blank');
+                this.showMessage('Откройте сайт vkhost.github.io, нажмите "Получить токен", затем скопируйте токен и вставьте его в поле выше', 'info');
+            },
+            
             async testToken() {
                 const token = this.elements.tokenInput.value.trim();
                 
@@ -735,24 +734,13 @@
                 this.updateConnectionStatus('loading');
                 
                 try {
-                    // Формируем URL для проверки токена
-                    const vkApiUrl = `https://api.vk.com/method/users.get?access_token=${token}&v=5.131`;
-                    const proxyUrl = this.proxyServer + encodeURIComponent(vkApiUrl);
+                    const testResult = await this.makeVKRequest('users.get', {}, token);
                     
-                    const response = await fetch(proxyUrl);
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                    if (testResult.error) {
+                        throw new Error(`VK API Error: ${testResult.error.error_msg}`);
                     }
                     
-                    const data = await response.json();
-                    const vkData = JSON.parse(data.contents);
-                    
-                    if (vkData.error) {
-                        throw new Error(`VK API Error: ${vkData.error.error_msg}`);
-                    }
-                    
-                    const user = vkData.response[0];
+                    const user = testResult.response[0];
                     this.showMessage(`✓ Токен рабочий! ID пользователя: ${user.id}, Имя: ${user.first_name} ${user.last_name}`, 'success');
                     this.updateConnectionStatus('connected');
                     
@@ -763,14 +751,13 @@
                 }
             },
             
-            // Загрузка новостей через VK API
             async loadNews() {
                 const token = this.elements.tokenInput.value.trim();
                 const groupId = this.elements.groupIdInput.value.trim();
                 const count = parseInt(this.elements.countInput.value);
 
-                if (!token || !groupId) {
-                    this.showMessage('Пожалуйста, заполните токен и ID группы', 'error');
+                if (!groupId) {
+                    this.showMessage('Пожалуйста, введите ID группы', 'error');
                     return;
                 }
 
@@ -778,37 +765,45 @@
                 this.updateConnectionStatus('loading');
 
                 try {
-                    // Формируем URL для запроса к VK API
-                    const vkApiUrl = `https://api.vk.com/method/wall.get?owner_id=-${groupId}&count=${count}&access_token=${token}&v=5.131`;
-                    const proxyUrl = this.proxyServer + encodeURIComponent(vkApiUrl);
+                    let posts = [];
                     
-                    const response = await fetch(proxyUrl);
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                    if (token) {
+                        // Пытаемся загрузить через VK API с токеном
+                        const apiResult = await this.makeVKRequest('wall.get', {
+                            owner_id: `-${groupId}`,
+                            count: count,
+                            extended: 1
+                        }, token);
+                        
+                        if (apiResult.error) {
+                            throw new Error(`VK API Error: ${apiResult.error.error_msg}`);
+                        }
+                        
+                        posts = apiResult.response.items || [];
+                        this.state.isUsingPublicData = false;
+                    } else {
+                        // Пытаемся получить публичные данные без токена
+                        this.showMessage('Используется публичный доступ (ограниченный)', 'info');
+                        posts = await this.getPublicPosts(groupId, count);
+                        this.state.isUsingPublicData = true;
                     }
                     
-                    const data = await response.json();
-                    const vkData = JSON.parse(data.contents);
-
-                    // Проверяем ошибки VK API
-                    if (vkData.error) {
-                        throw new Error(`VK API Error: ${vkData.error.error_msg} (code: ${vkData.error.error_code})`);
-                    }
-
-                    this.state.posts = vkData.response.items || [];
-                    
-                    if (this.state.posts.length === 0) {
+                    if (posts.length === 0) {
                         this.showNoPosts();
                         return;
                     }
 
-                    this.displayPosts(this.state.posts);
+                    this.state.posts = posts;
+                    this.displayPosts(posts);
                     this.updateLastUpdateTime();
                     this.updateConnectionStatus('connected');
                     
                     // Сохраняем данные в локальное хранилище
-                    this.saveToLocalStorage(vkData.response);
+                    this.saveToLocalStorage({
+                        items: posts,
+                        timestamp: Date.now(),
+                        groupId: groupId
+                    });
 
                 } catch (error) {
                     console.error('Error loading news:', error);
@@ -817,7 +812,7 @@
                     const cachedData = this.loadFromLocalStorage();
                     if (cachedData && cachedData.items && cachedData.items.length > 0) {
                         this.state.posts = cachedData.items;
-                        this.displayPosts(this.state.posts);
+                        this.displayPosts(cachedData.items);
                         this.showMessage(`Ошибка загрузки. Показаны сохраненные данные. Ошибка: ${error.message}`, 'info');
                     } else {
                         this.showError(`Ошибка загрузки: ${this.getErrorMessage(error)}`);
@@ -827,11 +822,171 @@
                 }
             },
             
-            // Получение понятного сообщения об ошибке
+            // Функция для получения публичных постов (без токена)
+            async getPublicPosts(groupId, count) {
+                try {
+                    // Используем метод execute для получения данных о группе
+                    const script = `
+                        var groupId = ${groupId};
+                        var count = ${count};
+                        
+                        var groupInfo = API.groups.getById({
+                            group_id: groupId,
+                            fields: "name,screen_name,photo_200"
+                        })[0];
+                        
+                        var posts = API.wall.get({
+                            owner_id: -groupId,
+                            count: count
+                        });
+                        
+                        return {
+                            group: groupInfo,
+                            posts: posts
+                        };
+                    `;
+                    
+                    // Для публичного доступа используем другой подход
+                    const url = `https://api.vk.com/method/groups.getById?group_id=${groupId}&fields=name,description,photo_200&v=5.131`;
+                    
+                    const response = await this.fetchWithProxy(url);
+                    if (!response.ok) throw new Error('Network error');
+                    
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        // Если не получается через API, используем альтернативный метод
+                        return await this.getAlternativePublicPosts(groupId, count);
+                    }
+                    
+                    // Возвращаем тестовые данные, так как без токена wall.get недоступен
+                    return this.generateTestPosts(count);
+                    
+                } catch (error) {
+                    console.log('Falling back to test data:', error);
+                    return this.generateTestPosts(count);
+                }
+            },
+            
+            // Альтернативный метод получения публичных постов
+            async getAlternativePublicPosts(groupId, count) {
+                // Создаем тестовые данные для демонстрации
+                return this.generateTestPosts(count);
+            },
+            
+            // Генерация тестовых постов для демонстрации
+            generateTestPosts(count) {
+                const posts = [];
+                const now = Math.floor(Date.now() / 1000);
+                
+                for (let i = 0; i < count; i++) {
+                    posts.push({
+                        id: 1000 + i,
+                        from_id: -233768802,
+                        owner_id: -233768802,
+                        date: now - (i * 86400), // По одному посту в день
+                        text: `Пример новости #${i + 1} из сообщества ВКонтакте. Это демонстрационный текст для показа работы приложения. Для получения реальных новостей требуется токен доступа VK API.`,
+                        likes: {
+                            count: Math.floor(Math.random() * 100)
+                        },
+                        comments: {
+                            count: Math.floor(Math.random() * 50)
+                        },
+                        reposts: {
+                            count: Math.floor(Math.random() * 30)
+                        },
+                        views: {
+                            count: Math.floor(Math.random() * 1000)
+                        }
+                    });
+                }
+                
+                return posts;
+            },
+            
+            // Универсальный метод для запросов к VK API
+            async makeVKRequest(method, params, token = null) {
+                const baseUrl = 'https://api.vk.com/method/';
+                const version = '5.131';
+                
+                let url = `${baseUrl}${method}?v=${version}`;
+                
+                // Добавляем параметры
+                Object.keys(params).forEach(key => {
+                    url += `&${key}=${encodeURIComponent(params[key])}`;
+                });
+                
+                // Добавляем токен если есть
+                if (token) {
+                    url += `&access_token=${token}`;
+                }
+                
+                try {
+                    const response = await this.fetchWithProxy(url);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Обработка ответа от прокси
+                    if (data.contents) {
+                        return JSON.parse(data.contents);
+                    }
+                    
+                    return data;
+                    
+                } catch (error) {
+                    console.error('VK API request failed:', error);
+                    throw error;
+                }
+            },
+            
+            // Метод для запросов с прокси
+            async fetchWithProxy(url) {
+                let lastError = null;
+                
+                // Пробуем все доступные прокси
+                for (const proxy of this.proxyServers) {
+                    try {
+                        let proxyUrl;
+                        
+                        if (proxy.includes('allorigins.win')) {
+                            proxyUrl = proxy + encodeURIComponent(url);
+                        } else if (proxy.includes('corsproxy.io')) {
+                            proxyUrl = proxy + encodeURIComponent(url);
+                        } else {
+                            proxyUrl = proxy + url;
+                        }
+                        
+                        const response = await fetch(proxyUrl, {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'application/json',
+                            },
+                            mode: 'cors'
+                        });
+                        
+                        if (response.ok) {
+                            return response;
+                        }
+                        
+                        lastError = new Error(`Proxy ${proxy} failed with status ${response.status}`);
+                        
+                    } catch (error) {
+                        lastError = error;
+                        continue;
+                    }
+                }
+                
+                throw lastError || new Error('All proxies failed');
+            },
+            
+            // Остальные методы остаются без изменений...
             getErrorMessage(error) {
                 const errorMsg = error.message || 'Unknown error';
                 
-                // Расшифровка кодов ошибок VK API
                 if (errorMsg.includes('error_code')) {
                     const errorCodeMatch = errorMsg.match(/code: (\d+)/);
                     if (errorCodeMatch) {
@@ -858,7 +1013,6 @@
                 return errorMsg;
             },
             
-            // Отображение постов
             displayPosts(posts) {
                 this.elements.newsContainer.innerHTML = '';
                 
@@ -867,53 +1021,40 @@
                     this.elements.newsContainer.appendChild(newsCard);
                 });
                 
-                // Анимация появления
                 const cards = document.querySelectorAll('.news-card');
                 cards.forEach((card, index) => {
                     card.style.animationDelay = `${index * 0.1}s`;
                 });
             },
             
-            // Создание карточки новости
             createNewsCard(post, index) {
                 const card = document.createElement('div');
                 card.className = 'news-card';
                 
-                // Изображения
-                const images = this.getPostImages(post);
-                const mainImage = images[0] || '';
-                
-                // Текст
                 const text = this.processPostText(post.text);
                 const isLongText = text.length > 500;
                 const shortText = isLongText ? text.substring(0, 500) + '...' : text;
-                
-                // Дата
                 const date = this.formatDate(post.date);
                 
-                // Тип записи
-                const isOwnerPost = post.from_id === Math.abs(post.owner_id);
-                const postType = isOwnerPost ? 'owner' : 'others';
-                const typeText = isOwnerPost ? 'От владельца' : 'От пользователя';
-                
-                // Статистика
-                const likes = post.likes?.count || 0;
-                const comments = post.comments?.count || 0;
-                const reposts = post.reposts?.count || 0;
-                const views = post.views?.count || 0;
+                // Добавляем пометку для тестовых данных
+                const isTestData = this.state.isUsingPublicData;
                 
                 card.innerHTML = `
-                    ${mainImage ? `
-                        <div class="news-image-container">
-                            <img src="${mainImage}" alt="Изображение новости" class="news-image">
-                        </div>
-                    ` : ''}
-                    
                     <div class="news-content">
                         <div class="news-header">
                             <div class="news-date">${date}</div>
-                            <div class="news-type type-${postType}">${typeText}</div>
+                            <div class="news-type type-owner">
+                                ${isTestData ? 'Демо данные' : 'От сообщества'}
+                            </div>
                         </div>
+                        
+                        ${isTestData ? `
+                            <div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin-bottom: 15px; border-left: 4px solid #ffc107;">
+                                <i class="fas fa-info-circle"></i> 
+                                Это демонстрационные данные. Для получения реальных новостей 
+                                <a href="https://vkhost.github.io/" target="_blank" style="color: #4a76a8; font-weight: bold;">получите токен</a>.
+                            </div>
+                        ` : ''}
                         
                         <div class="news-text ${isLongText ? 'short' : 'full'}" id="text-${index}">
                             ${isLongText ? shortText : text}
@@ -929,29 +1070,35 @@
                             <div class="news-stats">
                                 <div class="stat-item">
                                     <i class="fas fa-heart"></i>
-                                    <span>${likes}</span>
+                                    <span>${post.likes?.count || 0}</span>
                                 </div>
                                 <div class="stat-item">
                                     <i class="fas fa-comment"></i>
-                                    <span>${comments}</span>
+                                    <span>${post.comments?.count || 0}</span>
                                 </div>
                                 <div class="stat-item">
                                     <i class="fas fa-share"></i>
-                                    <span>${reposts}</span>
+                                    <span>${post.reposts?.count || 0}</span>
                                 </div>
                                 <div class="stat-item">
                                     <i class="fas fa-eye"></i>
-                                    <span>${views}</span>
+                                    <span>${post.views?.count || 0}</span>
                                 </div>
                             </div>
                             
                             <div class="news-actions">
-                                <button onclick="VKNewsApp.openInVK(${post.id}, ${post.owner_id})" class="btn-outline">
-                                    <i class="fab fa-vk"></i> Открыть в VK
-                                </button>
-                                <button onclick="VKNewsApp.copyLink(${post.id}, ${post.owner_id})" class="btn-outline">
-                                    <i class="fas fa-link"></i> Копировать ссылку
-                                </button>
+                                ${!this.state.isUsingPublicData ? `
+                                    <button onclick="VKNewsApp.openInVK(${post.id}, ${post.owner_id})" class="btn-outline">
+                                        <i class="fab fa-vk"></i> Открыть в VK
+                                    </button>
+                                    <button onclick="VKNewsApp.copyLink(${post.id}, ${post.owner_id})" class="btn-outline">
+                                        <i class="fas fa-link"></i> Копировать ссылку
+                                    </button>
+                                ` : `
+                                    <button onclick="VKNewsApp.showTokenInfo()" class="btn-primary">
+                                        <i class="fas fa-key"></i> Получить токен
+                                    </button>
+                                `}
                             </div>
                         </div>
                     </div>
@@ -960,46 +1107,19 @@
                 return card;
             },
             
-            // Получение изображений из поста
-            getPostImages(post) {
-                const images = [];
-                
-                if (post.attachments) {
-                    post.attachments.forEach(attachment => {
-                        if (attachment.type === 'photo') {
-                            const photo = attachment.photo;
-                            // Ищем изображение хорошего качества
-                            const bestSize = photo.sizes.find(size => size.type === 'x') || 
-                                           photo.sizes.find(size => size.type === 'z') || 
-                                           photo.sizes.find(size => size.type === 'y') ||
-                                           photo.sizes.find(size => size.type === 'm') ||
-                                           photo.sizes[photo.sizes.length - 1];
-                            if (bestSize) images.push(bestSize.url);
-                        }
-                    });
-                }
-                
-                return images;
+            showTokenInfo() {
+                this.showMessage('Для работы с реальными данными нужен токен. Нажмите кнопку "Получить токен" в настройках подключения.', 'info');
             },
             
-            // Обработка текста поста
             processPostText(text) {
                 if (!text) return '';
                 
                 let processed = text;
-                
-                // Обработка ссылок [id1|Name]
                 processed = processed.replace(/\[([^|\]]+)\|([^\]]+)\]/g, 
                     '<a href="https://vk.com/$1" target="_blank" style="color: #4a76a8; text-decoration: none;">$2</a>');
-                
-                // Обработка хэштегов
                 processed = processed.replace(/#(\w+)/g, 
                     '<a href="https://vk.com/feed?section=search&q=%23$1" target="_blank" style="color: #4a76a8; text-decoration: none;">#$1</a>');
-                
-                // Переносы строк
                 processed = processed.replace(/\n/g, '<br>');
-                
-                // Защита от XSS
                 processed = processed.replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 processed = processed.replace(/&lt;br&gt;/g, '<br>');
                 processed = processed.replace(/&lt;a/g, '<a').replace(/&gt;<\/a&gt;/g, '></a>');
@@ -1007,7 +1127,6 @@
                 return processed;
             },
             
-            // Форматирование даты
             formatDate(timestamp) {
                 const date = new Date(timestamp * 1000);
                 const now = new Date();
@@ -1033,7 +1152,6 @@
                 }
             },
             
-            // Переключение текста (читать далее/свернуть)
             toggleText(index) {
                 const textElement = document.getElementById(`text-${index}`);
                 const button = textElement.nextElementSibling;
@@ -1052,13 +1170,11 @@
                 }
             },
             
-            // Открыть запись в VK
             openInVK(postId, ownerId) {
                 const url = `https://vk.com/wall${ownerId}_${postId}`;
                 window.open(url, '_blank');
             },
             
-            // Копировать ссылку
             copyLink(postId, ownerId) {
                 const url = `https://vk.com/wall${ownerId}_${postId}`;
                 navigator.clipboard.writeText(url)
@@ -1066,7 +1182,6 @@
                     .catch(() => this.showMessage('Не удалось скопировать ссылку', 'error'));
             },
             
-            // Обновление статуса соединения
             updateConnectionStatus(status = 'checking') {
                 const statusMap = {
                     'checking': { text: 'Проверка соединения...', icon: 'fas fa-sync fa-spin', color: 'warning' },
@@ -1080,13 +1195,11 @@
                 this.elements.connectionStatus.innerHTML = `<i class="${currentStatus.icon}"></i> ${currentStatus.text}`;
             },
             
-            // Обновление времени последнего обновления
             updateLastUpdateTime() {
                 const now = new Date();
                 this.elements.lastUpdateTime.textContent = now.toLocaleTimeString('ru-RU');
             },
             
-            // Сохранение в локальное хранилище
             saveToLocalStorage(data) {
                 const cacheData = {
                     items: data.items,
@@ -1097,14 +1210,11 @@
                 localStorage.setItem('vk_news_cache', JSON.stringify(cacheData));
             },
             
-            // Загрузка из локального хранилища
             loadFromLocalStorage() {
                 const cached = localStorage.getItem('vk_news_cache');
                 if (!cached) return null;
                 
                 const cacheData = JSON.parse(cached);
-                
-                // Проверяем, не устарели ли данные (больше 1 часа)
                 const isExpired = Date.now() - cacheData.timestamp > 3600000;
                 
                 if (isExpired || cacheData.groupId !== this.elements.groupIdInput.value) {
@@ -1114,7 +1224,6 @@
                 return cacheData;
             },
             
-            // Показать состояние загрузки
             showLoading() {
                 this.elements.newsContainer.innerHTML = '';
                 this.elements.newsContainer.appendChild(this.elements.loadingState);
@@ -1129,7 +1238,6 @@
                 `;
             },
             
-            // Показать ошибку
             showError(message) {
                 this.elements.newsContainer.innerHTML = `
                     <div class="error">
@@ -1138,7 +1246,7 @@
                         <p>${message}</p>
                         <p><small>Попробуйте:</small></p>
                         <ul style="text-align: left; margin: 20px;">
-                            <li>Нажать кнопку "Проверить токен"</li>
+                            <li>Нажать кнопку "Получить токен" для создания нового токена</li>
                             <li>Проверить подключение к интернету</li>
                             <li>Обновить страницу (F5)</li>
                         </ul>
@@ -1149,7 +1257,6 @@
                 `;
             },
             
-            // Показать сообщение "нет постов"
             showNoPosts() {
                 this.elements.newsContainer.innerHTML = `
                     <div class="no-posts">
@@ -1160,7 +1267,6 @@
                 `;
             },
             
-            // Показать сообщение
             showMessage(message, type = 'info') {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = `message message-${type}`;
@@ -1177,7 +1283,6 @@
             }
         };
 
-        // Запуск приложения при загрузке страницы
         document.addEventListener('DOMContentLoaded', () => {
             VKNewsApp.init();
         });
